@@ -65,6 +65,10 @@ class Sticky(Toplevel):
         self.minsize(10,10)
         self.protocol("WM_DELETE_WINDOW", self.hide)
 
+        ### undo/redo
+        self.undo_stack = []
+        self.redo_stack = []
+
         ### style
         self.style = Style(self)
         self.style.configure(self.id + ".TCheckbutton", selectbackground="red")
@@ -102,7 +106,7 @@ class Sticky(Toplevel):
         # texte
         font_text = "%s %s" %(CONFIG.get("Font", "text_family").replace(" ", "\ "),
                               CONFIG.get("Font", "text_size"))
-        self.txt = Text(self, wrap='word', undo=True,
+        self.txt = Text(self, wrap='word', undo=True, autoseparators=False,
                         selectforeground='white',
                         inactiveselectbackground=selectbg,
                         selectbackground=selectbg,
@@ -239,7 +243,7 @@ class Sticky(Toplevel):
         self.color = kwargs.get("color",
                                 CONFIG.get("Categories", self.category.get()))
         self.txt.insert('1.0', kwargs.get("txt",""))
-        self.txt.edit_reset()  # clear undo stack
+        self.edit_reset()  # clear undo stack
         # restore inserted objects (images and checkboxes)
         # we need to restore objects with increasing index to avoid placment errors
         indexes = list(kwargs.get("inserted_objects", {}).keys())
@@ -308,7 +312,7 @@ class Sticky(Toplevel):
         self.corner.lift(self.txt)
         self.corner.place(relx=1.0, rely=1.0, anchor="se")
 
-        ### bindings
+        ### Bindings
         self.bind("<FocusOut>", self.save_note)
         self.bind('<Configure>', self.bouge)
         self.bind('<Button-1>', self.change_focus, True)
@@ -332,12 +336,17 @@ class Sticky(Toplevel):
                           lambda event: self.txt.configure(cursor=""))
         self.txt.bind("<FocusOut>", self.save_note)
         self.txt.bind('<Button-3>', self.show_menu_txt)
+        ### *-- undo/redo bindings
+        self.txt.bind("<Control-z>", self.undo)
+        self.txt.bind("<Control-y>", self.redo)
+        self.txt.bind("<space>", self.on_space)
+        self.txt.bind("<Return>", self.on_return)
+        self.txt.bind("<BackSpace>", self.on_backspace)
         # add binding to the existing class binding so that the selected text
         # is erased on pasting
         self.txt.bind("<Control-v>", self.paste)
         self.corner.bind('<ButtonRelease-1>', self.resize)
-
-        ### keyboard shortcuts
+        ### *-- keyboard shortcuts
         self.txt.bind('<Control-b>', lambda e: self.toggle_text_style('bold'))
         self.txt.bind('<Control-i>', lambda e: self.toggle_text_style('italic'))
         self.txt.bind('<Control-u>', lambda e: self.toggle_underline())
@@ -492,12 +501,27 @@ class Sticky(Toplevel):
         self.save_note()
 
     def set_mode_note(self):
-        self.txt.tag_remove("list", "1.0", "end")
-        self.txt.tag_remove("todolist", "1.0", "end")
-        self.txt.tag_remove("enum", "1.0", "end")
+#        # edit note to make sure the separator is added
+#        self.txt.insert("end", " ")
+#        self.txt.delete("end-2c")
+        self.txt.edit_separator()
+        if self.txt.tag_ranges("list"):
+            self.txt.tag_remove("list", "1.0", "end")
+            self.edit_do(lambda: self.undo_mode_change("note", "list"),
+                         lambda: self.redo_mode_change("note", "list"))
+        elif self.txt.tag_ranges("todolist"):
+            self.txt.tag_remove("todolist", "1.0", "end")
+            self.edit_do(lambda: self.undo_mode_change("note", "todolist"),
+                         lambda: self.redo_mode_change("note", "todolist"))
+        elif self.txt.tag_ranges("enum"):
+            self.txt.tag_remove("enum", "1.0", "end")
+            self.edit_do(lambda: self.undo_mode_change("note", "enum"),
+                         lambda: self.redo_mode_change("note", "enum"))
+#        self.txt.edit_separator()
         self.save_note()
 
     def set_mode_list(self):
+        self.txt.edit_separator()
         end = int(self.txt.index("end").split(".")[0])
         lines  = self.txt.get("1.0", "end").splitlines()
         for i, l in zip(range(1, end), lines):
@@ -514,13 +538,22 @@ class Sticky(Toplevel):
                     self.txt.delete("%i.0"  % i, "%i.%i"  % (i, res.end()))
             if self.txt.get("%i.0"  % i, "%i.3"  % i) != "\t•\t":
                 self.txt.insert("%i.0" % i, "\t•\t")
+        if self.txt.tag_ranges("enum"):
+            self.txt.tag_remove("enum", "1.0", "end")
+            self.edit_do(lambda: self.undo_mode_change("list", "enum"),
+                         lambda: self.redo_mode_change("list", "enum"))
+        elif self.txt.tag_ranges("todolist"):
+            self.txt.tag_remove("todolist", "1.0", "end")
+            self.edit_do(lambda: self.undo_mode_change("list", "todolist"),
+                         lambda: self.redo_mode_change("list", "todolist"))
+        elif not self.txt.tag_ranges("list"):
+            self.edit_do(lambda: self.undo_mode_change("list", "note"),
+                         lambda: self.redo_mode_change("list", "note"))
         self.txt.tag_add("list", "1.0", "end")
-        self.txt.tag_remove("todolist", "1.0", "end")
-        self.txt.tag_remove("enum", "1.0", "end")
+#        self.txt.edit_separator()
         self.save_note()
 
     def set_mode_enum(self):
-        self.txt.configure(autoseparators=False)
         self.txt.edit_separator()
         end = int(self.txt.index("end").split(".")[0])
         lines  = self.txt.get("1.0", "end").splitlines()
@@ -537,15 +570,25 @@ class Sticky(Toplevel):
                     self.txt.delete("%i.0"  % i, "%i.3"  % i)
             if not re.match('^\t[0-9]+\.', l):
                 self.txt.insert("%i.0" % i, "\t0.\t")
+        if self.txt.tag_ranges("list"):
+            self.txt.tag_remove("list", "1.0", "end")
+            self.edit_do(lambda: self.undo_mode_change("enum", "list"),
+                         lambda: self.redo_mode_change("enum", "list"))
+        elif self.txt.tag_ranges("todolist"):
+            self.txt.tag_remove("todolist", "1.0", "end")
+            self.edit_do(lambda: self.undo_mode_change("enum", "todolist"),
+                         lambda: self.redo_mode_change("enum", "todolist"))
+        elif not self.txt.tag_ranges("enum"):
+            self.edit_do(lambda: self.undo_mode_change("enum", "note"),
+                         lambda: self.redo_mode_change("enum", "note"))
         self.txt.tag_add("enum", "1.0", "end")
-        self.txt.tag_remove("todolist", "1.0", "end")
-        self.txt.tag_remove("list", "1.0", "end")
         self.update_enum()
-        self.txt.configure(autoseparators=True)
-        self.txt.edit_separator()
+        self.txt.edit_modified(False)
+#        self.txt.edit_separator()
         self.save_note()
 
     def set_mode_todolist(self):
+        self.txt.edit_separator()
         end = int(self.txt.index("end").split(".")[0])
         lines  = self.txt.get("1.0", "end").splitlines()
         for i,l in zip(range(1, end), lines):
@@ -560,8 +603,18 @@ class Sticky(Toplevel):
                 ch = Checkbutton(self.txt, takefocus=False,
                                  style=self.id + ".TCheckbutton")
                 self.txt.window_create("%i.0"  % i, window=ch)
-        self.txt.tag_remove("enum", "1.0", "end")
-        self.txt.tag_remove("list", "1.0", "end")
+        if self.txt.tag_ranges("enum"):
+            self.txt.tag_remove("enum", "1.0", "end")
+            self.edit_do(lambda: self.undo_mode_change("todolist", "enum"),
+                         lambda: self.redo_mode_change("todolist", "enum"))
+        elif self.txt.tag_ranges("list"):
+            self.txt.tag_remove("list", "1.0", "end")
+            self.edit_do(lambda: self.undo_mode_change("todolist", "list"),
+                         lambda: self.redo_mode_change("todolist", "list"))
+        elif not self.txt.tag_ranges("todolist"):
+            self.edit_do(lambda: self.undo_mode_change("todolist", "note"),
+                         lambda: self.redo_mode_change("todolist", "note"))
+#        self.txt.edit_separator()
         self.txt.tag_add("todolist", "1.0", "end")
         self.save_note()
 
@@ -937,3 +990,220 @@ class Sticky(Toplevel):
             self.txt.delete("%i.0" % (i + 1), "%i.%i" % (i + 1, end))
             self.txt.insert("%i.0" % (i + 1), "\t%i.\t" % (j + 1))
         self.txt.tag_add("enum", "1.0", "end")
+
+    ### Undo/Redo
+    def edit_do(self, undo_fct, redo_fct):
+        """ put action in undo stack and clear redo stack """
+        self.redo_stack = []
+        self.undo_stack.append((undo_fct, redo_fct))
+        self.txt.edit_modified(False)
+
+    def edit_undo(self):
+        try:
+            self.txt.edit_undo()
+        except TclError:
+            pass
+
+    def edit_redo(self):
+        try:
+            self.txt.edit_redo()
+        except TclError:
+            pass
+
+    def undo(self, event):
+        print("avant", [i[0] for i in self.undo_stack], "\n", [i[0] for i in self.redo_stack])
+        if self.txt.edit_modified():
+            self.txt.edit_separator()
+            self.edit_do(self.edit_undo, self.edit_redo)
+        if self.undo_stack:
+            undo_fct, redo_fct = self.undo_stack.pop(-1)
+            self.redo_stack.append((undo_fct, redo_fct))
+            undo_fct()
+            mode = self.mode.get()
+            if mode != "note":
+                self.txt.tag_add(mode, "1.0", "end")
+            self.txt.edit_modified(False)
+        print("après", [i[0] for i in self.undo_stack], "\n",[i[0] for i in self.redo_stack])
+
+    def redo(self, event):
+        print("avant", [i[0] for i in self.undo_stack], "\n",[i[0] for i in self.redo_stack])
+        if self.txt.edit_modified():
+            self.redo_stack = []
+        if self.redo_stack:
+            undo_fct, redo_fct = self.redo_stack.pop(-1)
+            self.undo_stack.append((undo_fct, redo_fct))
+            redo_fct()
+            mode = self.mode.get()
+            if mode != "note":
+                self.txt.tag_add(mode, "1.0", "end")
+            self.txt.edit_modified(False)
+        print("après", [i[0] for i in self.undo_stack], "\n",[i[0] for i in self.redo_stack])
+
+    def edit_reset(self):
+        self.txt.edit_reset()
+        self.undo_stack = []
+        self.redo_stack = []
+        self.txt.edit_modified(False)
+
+    def on_space(self, event):
+#        i1 = self.txt.index("insert-1c wordstart")
+#        i2 = self.txt.index("insert")
+#        word = self.txt.get(i1, i2) + " "
+#        undo = lambda: self.txt.delete(i1, i2 + "+1c")
+#        redo = lambda: self.txt.insert(i1, word)
+        self.txt.insert("insert", " ")
+        self.txt.edit_separator()
+        self.edit_do(self.edit_undo, self.edit_redo)
+
+    def on_backspace(self, event):
+        self.txt.edit_separator()
+        deb_line = self.txt.get("insert linestart", "insert")
+        tags = self.txt.tag_names("insert")
+        if self.txt.tag_ranges("sel"):
+            if self.txt.tag_nextrange("enum", "sel.first", "sel.last"):
+                update = True
+            else:
+                update = False
+            i1 = self.txt.index("sel.first")
+            i2 = self.txt.index("sel.last")
+#            txt = self.txt.get(i1, i2)
+            self.txt.delete(i1, i2)
+            if update:
+                self.update_enum()
+#
+#            def undo():
+#                self.txt.insert(i1, txt)
+#                if update:
+#                    self.update_enum()
+#
+#            def redo():
+#                self.txt.delete(i1, i2)
+#                if update:
+#                    self.update_enum()
+#            self.edit_do(undo, redo)
+
+        elif self.txt.index("insert") != "1.0":
+            if 'enum' in tags and re.match('^\t[0-9]+\.\t$', deb_line):
+                i1 = self.txt.index("insert linestart")
+                i2 = self.txt.index("insert")
+                self.txt.delete(i1, i2)
+                self.txt.insert("insert", "\t\t")
+                self.update_enum()
+#
+#                def undo():
+#                    self.txt.delete(i1, i1 + "+2c")
+#                    self.txt.insert(i1, "\t0.\t")
+#                    self.update_enum()
+#
+#                def redo():
+#                    self.txt.delete(i1, i2)
+#                    self.txt.insert(i1, "\t\t")
+#                    self.update_enum()
+
+            elif deb_line == "\t•\t" and 'list' in tags:
+                i1 = self.txt.index("insert linestart")
+                i2 = self.txt.index("insert")
+                self.txt.delete(i1, i2)
+                self.txt.insert("insert", "\t\t")
+#
+#                def undo():
+#                    self.txt.delete(i1, i1 + "+2c")
+#                    self.txt.insert(i1, "\t•\t")
+#
+#                def redo():
+#                    self.txt.delete(i1, i2)
+#                    self.txt.insert("insert", "\t\t")
+
+            elif deb_line == "\t\t":
+                i1 = self.txt.index("insert linestart")
+                self.txt.delete(i1, "insert")
+#                undo = lambda: self.txt.insert(i1, "\t\t")
+#                redo = lambda: self.txt.delete(i1, i1 + "+2c")
+
+            elif ("todolist" in tags and
+                  self.txt.index("insert") == self.txt.index("insert linestart+1c")):
+                try:
+                    i = self.txt.index("insert-1c")
+                    ch = self.txt.window_cget(i, "window")
+#                    state = "selected" in ch.state()
+                    self.txt.delete(i)
+                    self.txt.children[ch.split('.')[-1]].destroy()
+                    self.txt.insert("insert", "\t\t")
+#
+#                    def undo():
+#                        self.txt.delete(i, i + "+2c")
+#                        ch = Checkbutton(self.txt, takefocus=False,
+#                                         style=self.id + ".TCheckbutton")
+#                        if state:
+#                            ch.state(("selected",))
+#                        self.txt.window_create(i, window=ch)
+#
+#                    def redo():
+#                        ch = self.txt.window_cget(i, "window")
+#                        self.txt.delete(i)
+#                        self.txt.children[ch.split('.')[-1]].destroy()
+#                        self.txt.insert(i, "\t\t")
+
+                except TclError:
+                    i = self.txt.index("insert-1c")
+#                    char = self.txt.get(i)
+                    self.txt.delete(i)
+#                    undo = lambda: self.txt.insert(i, char)
+#                    redo = lambda: self.txt.delete(i)
+            else:
+                i = self.txt.index("insert-1c")
+#                char = self.txt.get(i)
+                self.txt.delete(i)
+#                undo = lambda: self.txt.insert(i, char)
+#                redo = lambda: self.txt.delete(i)
+
+#            self.edit_do(undo, redo)
+#        self.txt.edit_separator()
+        self.edit_do(self.edit_undo, self.edit_redo)
+        return "break"
+
+    def on_return(self, event):
+#        self.txt.edit_separator()
+#        i1 = self.txt.index("insert-1c wordstart")
+        mode = self.mode.get()
+        if mode == "list":
+            self.txt.insert("insert", "\n\t•\t")
+            self.txt.tag_add("list", "1.0", "end")
+        elif mode == "todolist":
+            self.txt.insert("insert", "\n")
+            ch = Checkbutton(self.txt, takefocus=False,
+                             style=self.id + ".TCheckbutton")
+            self.txt.window_create("insert", window=ch)
+            self.txt.tag_add("todolist", "1.0", "end")
+        elif mode == "enum":
+            self.txt.insert("insert", "\n\t0.\t")
+            self.update_enum()
+        else:
+            self.txt.insert("insert", "\n")
+#        i2 = self.txt.index("insert")
+#        word = self.txt.get(i1, i2)
+#        undo = lambda: self.txt.delete(i1, i2)
+#        redo = lambda: self.txt.insert(i1, word)
+#        self.edit_do(undo, redo)
+        self.txt.edit_separator()
+        self.edit_do(self.edit_undo, self.edit_redo)
+        return "break"
+
+    def undo_mode_change(self, new_mode, old_mode):
+        if new_mode != "note":
+            self.edit_undo()
+            self.txt.tag_remove(new_mode, "1.0", "end")
+        if old_mode != "note":
+            self.txt.tag_add(old_mode, "1.0", "end")
+#        self.edit_undo()
+        self.mode.set(old_mode)
+
+    def redo_mode_change(self, new_mode, old_mode):
+        if new_mode != "note":
+            self.edit_redo()
+            self.txt.tag_add(new_mode, "1.0", "end")
+        if old_mode != "note":
+            self.txt.tag_remove(old_mode, "1.0", "end")
+#        self.edit_redo()
+        self.mode.set(new_mode)
+

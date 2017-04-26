@@ -522,7 +522,7 @@ def askokcancel(title="", message="", parent=None, icon=None):
         icon = "question"
     box = TwoButtonBox(parent, title, message, "Ok", _("Cancel"), icon)
     box.wait_window(box)
-    return box.get_result()
+    return box.get_result() == "Ok"
 
 def askyesnocancel(title="", message="", parent=None, icon=None):
     if icon is None:

@@ -123,18 +123,19 @@ class App(Tk):
         self.make_notes_sticky()
 
         ### class bindings
-        # newline depending on mode
-        self.bind_class("Text", "<Return>",  self.insert_newline)
-        # char deletion taking into account list type
-        self.bind_class("Text", "<BackSpace>",  self.delete_char)
+#        # newline depending on mode
+#        self.bind_class("Text", "<Return>",  self.insert_newline)
+#        # char deletion taking into account list type
+#        self.bind_class("Text", "<BackSpace>",  self.delete_char)
         # change Ctrl+A to select all instead of go to the beginning of the line
         self.bind_class('Text', '<Control-a>', self.select_all_text)
         self.bind_class('TEntry', '<Control-a>', self.select_all_entry)
-        # bind Ctrl+Y to redo
-        self.bind_class('Text', '<Control-y>', self.redo_event)
         # unbind Ctrl+I and Ctrl+B
         self.bind_class('Text', '<Control-i>', lambda e: None)
         self.bind_class('Text', '<Control-b>', lambda e: None)
+        self.bind_class('Text', '<Control-y>', lambda e: None)
+        self.bind_class("Text", "<Control-z>", lambda e: None)
+        self.bind_class("Text", "<Control-Lock-Y>", lambda e: None)
         # highlight checkboxes when inside text selection
         self.bind_class("Text", "<ButtonPress-1>", self.highlight_checkboxes, True)
         self.bind_class("Text", "<ButtonRelease-1>", self.highlight_checkboxes, True)
@@ -173,13 +174,6 @@ class App(Tk):
                 except TclError:
                     pass
 
-    def redo_event(self, event):
-        try:
-            event.widget.edit_redo()
-        except TclError:
-            # nothing to redo
-            pass
-
     def select_all_entry(self, event):
         event.widget.selection_range(0, "end")
 
@@ -187,59 +181,59 @@ class App(Tk):
         event.widget.tag_add("sel", "1.0", "end-1c")
         self.highlight_checkboxes(event)
 
-    def delete_char(self, event):
-        txt = event.widget
-        deb_line = txt.get("insert linestart", "insert")
-        tags = txt.tag_names("insert")
-        if txt.tag_ranges("sel"):
-            if txt.tag_nextrange("enum", "sel.first", "sel.last"):
-                update = True
-            else:
-                update = False
-            txt.delete("sel.first", "sel.last")
-            if update:
-                txt.master.update_enum()
-        elif txt.index("insert") != "1.0":
-            if re.match('^\t[0-9]+\.\t$', deb_line) and 'enum' in tags:
-                txt.delete("insert linestart", "insert")
-                txt.insert("insert", "\t\t")
-                txt.master.update_enum()
-            elif deb_line == "\t•\t" and 'list' in tags:
-                txt.delete("insert linestart", "insert")
-                txt.insert("insert", "\t\t")
-            elif deb_line == "\t\t":
-                txt.delete("insert linestart", "insert")
-            elif "todolist" in tags and txt.index("insert") == txt.index("insert linestart+1c"):
-                try:
-                    ch = txt.window_cget("insert-1c", "window")
-                    txt.delete("insert-1c")
-                    txt.children[ch.split('.')[-1]].destroy()
-                    txt.insert("insert", "\t\t")
-                except TclError:
-                    txt.delete("insert-1c")
-            else:
-                txt.delete("insert-1c")
-
-    def insert_newline(self, event):
-        mode = event.widget.master.mode.get()
-        if mode == "list":
-            event.widget.insert("insert", "\n\t•\t")
-            event.widget.tag_add("list", "1.0", "end")
-        elif mode == "todolist":
-            event.widget.insert("insert", "\n")
-            ch = Checkbutton(event.widget, takefocus=False,
-                             style=event.widget.master.id + ".TCheckbutton")
-            event.widget.window_create("insert", window=ch)
-            event.widget.tag_add("todolist", "1.0", "end")
-        elif mode == "enum":
-            event.widget.configure(autoseparators=False)
-            event.widget.edit_separator()
-            event.widget.insert("insert", "\n\t0.\t")
-            event.widget.master.update_enum()
-            event.widget.edit_separator()
-            event.widget.configure(autoseparators=True)
-        else:
-            event.widget.insert("insert", "\n")
+#    def delete_char(self, event):
+#        txt = event.widget
+#        deb_line = txt.get("insert linestart", "insert")
+#        tags = txt.tag_names("insert")
+#        if txt.tag_ranges("sel"):
+#            if txt.tag_nextrange("enum", "sel.first", "sel.last"):
+#                update = True
+#            else:
+#                update = False
+#            txt.delete("sel.first", "sel.last")
+#            if update:
+#                txt.master.update_enum()
+#        elif txt.index("insert") != "1.0":
+#            if re.match('^\t[0-9]+\.\t$', deb_line) and 'enum' in tags:
+#                txt.delete("insert linestart", "insert")
+#                txt.insert("insert", "\t\t")
+#                txt.master.update_enum()
+#            elif deb_line == "\t•\t" and 'list' in tags:
+#                txt.delete("insert linestart", "insert")
+#                txt.insert("insert", "\t\t")
+#            elif deb_line == "\t\t":
+#                txt.delete("insert linestart", "insert")
+#            elif "todolist" in tags and txt.index("insert") == txt.index("insert linestart+1c"):
+#                try:
+#                    ch = txt.window_cget("insert-1c", "window")
+#                    txt.delete("insert-1c")
+#                    txt.children[ch.split('.')[-1]].destroy()
+#                    txt.insert("insert", "\t\t")
+#                except TclError:
+#                    txt.delete("insert-1c")
+#            else:
+#                txt.delete("insert-1c")
+#
+#    def insert_newline(self, event):
+#        mode = event.widget.master.mode.get()
+#        if mode == "list":
+#            event.widget.insert("insert", "\n\t•\t")
+#            event.widget.tag_add("list", "1.0", "end")
+#        elif mode == "todolist":
+#            event.widget.insert("insert", "\n")
+#            ch = Checkbutton(event.widget, takefocus=False,
+#                             style=event.widget.master.id + ".TCheckbutton")
+#            event.widget.window_create("insert", window=ch)
+#            event.widget.tag_add("todolist", "1.0", "end")
+#        elif mode == "enum":
+##            event.widget.configure(autoseparators=False)
+##            event.widget.edit_separator()
+#            event.widget.insert("insert", "\n\t0.\t")
+#            event.widget.master.update_enum()
+##            event.widget.edit_separator()
+#            event.widget.configure(autoseparators=True)
+#        else:
+#            event.widget.insert("insert", "\n")
 
     def make_notes_sticky(self):
         for w in self.ewmh.getClientList():
@@ -574,10 +568,10 @@ class App(Tk):
 #                        with open(fichier, "wb") as fich:
 #                            dp = pickle.Pickler(fich)
 #                            dp.dump(note_data)
-#                except Exception as e:
-#                    report_msg = e.strerror != 'Permission denied'
-#                    showerror(_("Error"), str(e), traceback.format_exc(),
-#                              report_msg)
+                except Exception as e:
+                    report_msg = e.strerror != 'Permission denied'
+                    showerror(_("Error"), str(e), traceback.format_exc(),
+                              report_msg)
 
     def import_notes(self):
         fichier = askopenfilename(defaultextension=".backup",

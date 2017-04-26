@@ -274,6 +274,7 @@ class Config(Toplevel):
                             spacing2=5, spacing1=5, relief="flat", padx=4, pady=4,
                             font="%s %s" % (family.replace(" ", "\ "), size))
         self.symbols.insert("1.0", CONFIG.get("General", "symbols"))
+        self.symbols.bind("<Control-y>", self.redo_symbols)
         Label(symbols_settings, text=_("Available symbols")).pack(padx=4, pady=4)
         txt_frame.pack(fill="both", expand=True, padx=4, pady=4)
         self.symbols.pack(fill="both", expand=True)
@@ -298,6 +299,13 @@ class Config(Toplevel):
     def reset_symbols(self):
         self.symbols.delete('1.0', 'end')
         self.symbols.insert('1.0', SYMBOLS)
+
+    def redo_symbols(self):
+        try:
+            self.symbols.edit_redo()
+        except TclError:
+            pass
+        return "break"
 
     def cleanup(self):
         ''' Remove unused latex images '''
